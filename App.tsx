@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Collection, ToastState } from './types';
+import { Collection, ToastState, ImageAnalysisResult } from './types';
 import { User } from 'firebase/auth';
 import Header from './components/Header';
+import ActionButtons from './components/ActionButtons';
 import CollectionForm from './components/CollectionForm';
 import Gallery from './components/Gallery';
 import DetailModal from './components/DetailModal';
@@ -14,10 +15,11 @@ import {
     loadCollections as fetchCollections,
     addCollection as saveCollection,
     deleteCollection as removeCollection,
-    clearAllCollections as removeAllCollections
+    clearAllCollections as removeAllCollections,
+    batchAddCollections
 } from './services/firebaseService';
 import { uploadImage } from './services/cloudinaryService';
-import { generatePromptIdea } from './services/geminiService';
+import { generatePromptIdea, analyzeImage } from './services/geminiService';
 import { getCollections as getLocalCollections, saveCollections as saveLocalCollections } from './services/localStoreService';
 
 const App: React.FC = () => {
@@ -56,7 +58,8 @@ const App: React.FC = () => {
             setCollections(fetchedCollections);
             setFilteredCollections(fetchedCollections);
             saveLocalCollections(fetchedCollections);
-            showToast('Collections loaded successfully.');
+            // Don't show toast on initial load for cleaner UX
+            // showToast('Collections loaded successfully.');
         } catch (error: any) {
             let message = 'Connection failed. Displaying locally cached data.';
             if (error?.code === 'failed-precondition') {
@@ -92,10 +95,9 @@ const App: React.FC = () => {
         try {
             imageUrl = await uploadImage(imageFile);
         } catch (error) {
-            const errorMessage = error instanceof Error && error.message.includes('Invalid extension')
-                ? "Image upload failed. Check 'simpan_lokal' preset in Cloudinary for transformation errors."
-                : `Failed to upload image: ${error instanceof Error ? error.message : 'Unknown error'}`;
-            showToast(errorMessage);
+            const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred during image upload.';
+            showToast(`Image Upload Failed: ${errorMessage}`);
+            console.error("Cloudinary upload failed:", error);
             setIsLoading(false);
             return false;
         }
@@ -159,6 +161,80 @@ const App: React.FC = () => {
             setIsLoading(false);
         }
     };
+    
+    const handleExportCollections = () => {
+        if (collections.length === 0) {
+            showToast("There is nothing to export.");
+            return;
+        }
+        try {
+            const jsonString = JSON.stringify(collections, null, 2);
+            const blob = new Blob([jsonString], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            const timestamp = new Date().toISOString().slice(0, 10);
+            link.download = `ai-collection-export-${timestamp}.json`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            showToast("Collection exported successfully!");
+        } catch (error) {
+            console.error("Failed to export collections:", error);
+            showToast("An error occurred during export.");
+        }
+    };
+
+    const handleImportCollections = (file: File) => {
+        if (!user) {
+            showToast("You must be logged in to import collections.");
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            try {
+                const content = event.target?.result as string;
+                const importedData = JSON.parse(content);
+
+                if (!Array.isArray(importedData)) {
+                    throw new Error("Invalid format: JSON file must contain an array.");
+                }
+
+                if (importedData.length > 0 && (!importedData[0].prompt || !importedData[0].imageUrl)) {
+                    throw new Error("Invalid data: Imported objects are missing required fields like 'prompt' or 'imageUrl'.");
+                }
+
+                const existingImageUrls = new Set(collections.map(c => c.imageUrl));
+                const newCollectionsToAdd = importedData.filter(item => !existingImageUrls.has(item.imageUrl));
+
+                if (newCollectionsToAdd.length === 0) {
+                    showToast("Import complete. No new items were found to add.");
+                    return;
+                }
+
+                if (!confirm(`You are about to import ${newCollectionsToAdd.length} new item(s). This will add them to your collection. Continue?`)) {
+                    return;
+                }
+
+                setIsLoading(true);
+                
+                const collectionsToSave = newCollectionsToAdd.map(({ id, timestamp, userId, ...rest }) => rest);
+
+                await batchAddCollections(user.uid, collectionsToSave);
+                showToast(`Successfully imported ${newCollectionsToAdd.length} items! Refreshing data...`);
+                await loadCollections(user.uid);
+
+            } catch (error) {
+                console.error("Failed to import collections:", error);
+                showToast(error instanceof Error ? error.message : "Failed to parse or import the file.");
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        reader.readAsText(file);
+    };
+
 
     const handleGeneratePrompt = async (): Promise<string> => {
         setIsLoading(true);
@@ -170,6 +246,35 @@ const App: React.FC = () => {
             console.error("Error generating prompt:", error);
             showToast(`Error: ${error instanceof Error ? error.message : 'Failed to generate prompt.'}`);
             return '';
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const fileToBase64 = (file: File): Promise<{ base64Data: string; mimeType: string }> => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => {
+                const result = reader.result as string;
+                const base64Data = result.split(',')[1];
+                resolve({ base64Data, mimeType: file.type });
+            };
+            reader.onerror = error => reject(error);
+        });
+    };
+
+    const handleAnalyzeImage = async (imageFile: File): Promise<ImageAnalysisResult | null> => {
+        setIsLoading(true);
+        try {
+            const { base64Data, mimeType } = await fileToBase64(imageFile);
+            const analysis = await analyzeImage(base64Data, mimeType);
+            showToast('Image analyzed successfully!');
+            return analysis;
+        } catch (error) {
+            console.error("Error analyzing image:", error);
+            showToast(`Error: ${error instanceof Error ? error.message : 'Failed to analyze image.'}`);
+            return null;
         } finally {
             setIsLoading(false);
         }
@@ -204,13 +309,18 @@ const App: React.FC = () => {
             <Toast message={toast.message} show={toast.show} />
             <div className="max-w-6xl mx-auto px-4 py-6">
                 <Header user={user} onSignOut={signOutUser} />
-                {/* ConnectionStatus is less relevant now as data loads only if online, but can be kept for UI feedback */}
+                <ActionButtons 
+                    onExport={handleExportCollections}
+                    onImport={handleImportCollections}
+                    onClearAll={handleClearAll}
+                    isCollectionEmpty={collections.length === 0}
+                />
                 <CollectionForm
                     onAddCollection={handleAddCollection}
-                    onClearAll={handleClearAll}
                     onGeneratePrompt={handleGeneratePrompt}
+                    onAnalyzeImage={handleAnalyzeImage}
                     showToast={showToast}
-                    isOnline={true} // Assume online if logged in
+                    isOnline={true}
                 />
                 <Gallery
                     collections={filteredCollections}
@@ -223,6 +333,7 @@ const App: React.FC = () => {
                     item={selectedItem}
                     onClose={() => setSelectedItem(null)}
                     onDelete={handleDeleteCollection}
+                    showToast={showToast}
                 />
             )}
         </div>
