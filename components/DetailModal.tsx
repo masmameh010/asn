@@ -6,10 +6,13 @@ interface DetailModalProps {
     item: Collection;
     onClose: () => void;
     onDelete: (id: string) => void;
+    showToast: (message: string) => void;
 }
 
-const DetailModal: React.FC<DetailModalProps> = ({ item, onClose, onDelete }) => {
+const DetailModal: React.FC<DetailModalProps> = ({ item, onClose, onDelete, showToast }) => {
     const [feedback, setFeedback] = useState<Record<string, boolean>>({});
+    const [isCopying, setIsCopying] = useState(false);
+    const [isCopied, setIsCopied] = useState(false);
 
     const copyToClipboard = (text: string, id: string) => {
         navigator.clipboard.writeText(text).then(() => {
@@ -17,8 +20,40 @@ const DetailModal: React.FC<DetailModalProps> = ({ item, onClose, onDelete }) =>
             setTimeout(() => setFeedback(prev => ({...prev, [id]: false})), 2000);
         }).catch(err => {
             console.error('Failed to copy: ', err);
+            showToast('Failed to copy text.');
         });
     };
+    
+    const handleCopyImage = async () => {
+        if (!navigator.clipboard?.write || !window.ClipboardItem) {
+            showToast("Your browser does not support copying images.");
+            return;
+        }
+        if (isCopying || isCopied) return;
+
+        setIsCopying(true);
+        setIsCopied(false);
+    
+        try {
+            // Fetch the image and convert it to a blob
+            const response = await fetch(item.imageUrl);
+            const blob = await response.blob();
+            
+            // Create a ClipboardItem and write it to the clipboard
+            await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+            
+            showToast("Image copied to clipboard!");
+            setIsCopied(true);
+            setTimeout(() => setIsCopied(false), 2500); // Keep "Copied!" message for 2.5s
+    
+        } catch (error) {
+            console.error('Failed to copy image:', error);
+            showToast("Failed to copy image. Check browser permissions or CORS policy.");
+        } finally {
+            setIsCopying(false);
+        }
+    };
+
 
     const copyAllParameters = () => {
         let text = `Prompt: ${item.prompt}\n\n`;
@@ -56,6 +91,19 @@ const DetailModal: React.FC<DetailModalProps> = ({ item, onClose, onDelete }) =>
                         <div className="lg:w-2/5">
                             <img src={item.imageUrl} alt="Collection item" className="rounded-xl shadow-lg border w-full" />
                             <div className="mt-4 flex flex-wrap gap-2">
+                                <button
+                                    onClick={handleCopyImage}
+                                    disabled={isCopying || isCopied}
+                                    className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium flex items-center justify-center gap-2 disabled:bg-indigo-400 disabled:cursor-not-allowed transition-all duration-200"
+                                >
+                                    {isCopying ? (
+                                        <><div className="spinner !w-5 !h-5 !border-t-white !border-white/40"></div><span>Copying...</span></>
+                                    ) : isCopied ? (
+                                        <><i className="fa-solid fa-check"></i><span>Copied!</span></>
+                                    ) : (
+                                        <><i className="fa-solid fa-copy"></i><span>Copy Image</span></>
+                                    )}
+                                </button>
                                 <button onClick={() => onDelete(item.id)} className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium flex items-center justify-center gap-2">
                                     <i className="fa-solid fa-trash"></i> Delete
                                 </button>
