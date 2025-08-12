@@ -57,9 +57,16 @@ const App: React.FC = () => {
             setFilteredCollections(fetchedCollections);
             saveLocalCollections(fetchedCollections);
             showToast('Collections loaded successfully.');
-        } catch (error) {
-            console.error("Firebase connection failed, loading from local cache:", error);
-            showToast('Connection failed. Displaying locally cached data.');
+        } catch (error: any) {
+            let message = 'Connection failed. Displaying locally cached data.';
+            if (error?.code === 'failed-precondition') {
+                message = 'Database requires an index. See browser console for the creation link.';
+                console.error("Firestore index required. Please create it using the link in the error details below:", error);
+            } else {
+                console.error("Firebase connection failed, loading from local cache:", error);
+            }
+    
+            showToast(message);
             const cachedCollections = getLocalCollections();
             setCollections(cachedCollections);
             setFilteredCollections(cachedCollections);
