@@ -32,6 +32,7 @@ const ActionButtons: React.FC<ActionButtonsProps> = ({ onExport, onImport, onCle
                 <button
                     onClick={onExport}
                     disabled={isCollectionEmpty}
+                    title={isCollectionEmpty ? "Add items to your collection to enable export" : "Export collection to a JSON file"}
                     className="flex-grow sm:flex-grow-0 px-5 py-2.5 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
                 >
                     <i className="fa-solid fa-file-export"></i>
@@ -39,6 +40,7 @@ const ActionButtons: React.FC<ActionButtonsProps> = ({ onExport, onImport, onCle
                 </button>
                 <button
                     onClick={handleImportClick}
+                    title="Import a collection from a JSON file"
                     className="flex-grow sm:flex-grow-0 px-5 py-2.5 bg-yellow-500 text-white font-bold rounded-lg hover:bg-yellow-600 flex items-center justify-center gap-2 transition-colors"
                 >
                     <i className="fa-solid fa-file-import"></i>
@@ -55,6 +57,7 @@ const ActionButtons: React.FC<ActionButtonsProps> = ({ onExport, onImport, onCle
                 <button
                     onClick={onClearAll}
                     disabled={isCollectionEmpty}
+                    title={isCollectionEmpty ? "Your collection is already empty" : "Delete all items from your collection"}
                     className="flex-grow sm:flex-grow-0 px-5 py-2.5 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
                 >
                     <i className="fa-solid fa-trash-can"></i>
