@@ -1,19 +1,19 @@
 
 import React, { useState, useRef } from 'react';
-import { Collection, Lora, Platform, TensorData } from '../types';
+import { Collection, Lora, Platform, TensorData, ImageAnalysisResult } from '../types';
 import { PLATFORM_OPTIONS, MODELS, TENSOR_SAMPLERS, TENSOR_SCHEDULERS, TENSOR_VAES } from '../constants';
 
 interface CollectionFormProps {
     onAddCollection: (newCollectionData: Omit<Collection, 'id' | 'timestamp' | 'imageUrl' | 'userId'>, imageFile: File) => Promise<boolean>;
-    onClearAll: () => Promise<void>;
     onGeneratePrompt: () => Promise<string>;
+    onAnalyzeImage: (imageFile: File) => Promise<ImageAnalysisResult | null>;
     showToast: (message: string) => void;
     isOnline: boolean;
 }
 
 const initialLoras: Partial<Lora>[] = Array(6).fill({ name: '', strength: 0.8 });
 
-const CollectionForm: React.FC<CollectionFormProps> = ({ onAddCollection, onClearAll, onGeneratePrompt, showToast, isOnline }) => {
+const CollectionForm: React.FC<CollectionFormProps> = ({ onAddCollection, onGeneratePrompt, onAnalyzeImage, showToast, isOnline }) => {
     const [platform, setPlatform] = useState<Platform>(Platform.Gemini);
     const [imageFile, setImageFile] = useState<File | null>(null);
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -35,9 +35,9 @@ const CollectionForm: React.FC<CollectionFormProps> = ({ onAddCollection, onClea
     const [adetailer, setAdetailer] = useState(true);
     const [loras, setLoras] = useState<(Lora | {})[]>(initialLoras);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isAnalyzing, setIsAnalyzing] = useState(false);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const importInputRef = useRef<HTMLInputElement>(null);
 
     const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -119,11 +119,30 @@ const CollectionForm: React.FC<CollectionFormProps> = ({ onAddCollection, onClea
             setPrompt(generatedPrompt);
         }
     };
+
+    const handleAnalyzeClick = async () => {
+        if (!imageFile) {
+            showToast("Please select an image to analyze.");
+            return;
+        }
+        setIsAnalyzing(true);
+        const result = await onAnalyzeImage(imageFile);
+        if (result) {
+            setPrompt(result.suggestedPrompt);
+            setTags(result.suggestedTags.join(', '));
+            const suggestedPlatform = result.suggestedPlatform.toLowerCase();
+            if (Object.values(Platform).includes(suggestedPlatform as Platform)) {
+                setPlatform(suggestedPlatform as Platform);
+            } else {
+                showToast(`Could not set platform to "${result.suggestedPlatform}", please select manually.`);
+            }
+        }
+        setIsAnalyzing(false);
+    };
     
     const handlePlatformChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const newPlatform = e.target.value as Platform;
         setPlatform(newPlatform);
-        // Set default model for the selected platform
         const modelGroups = MODELS[newPlatform];
         if (modelGroups && modelGroups.length > 0 && modelGroups[0].options.length > 0) {
             setModel(modelGroups[0].options[0]);
@@ -132,36 +151,9 @@ const CollectionForm: React.FC<CollectionFormProps> = ({ onAddCollection, onClea
         }
     };
     
-    const handleExport = () => {
-        // This is a simplified version. For full functionality, it should get data from App.tsx state.
-        showToast("Export functionality is handled at the App level.");
-    };
-
-    const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onload = async (event) => {
-            try {
-                const importedData = JSON.parse(event.target?.result as string);
-                if (Array.isArray(importedData)) {
-                    // This logic should ideally be in App.tsx to update the main state
-                    showToast(`${importedData.length} items ready for import. (App-level logic needed)`);
-                } else {
-                    showToast('Invalid JSON file format.');
-                }
-            } catch (error) {
-                showToast('Failed to parse JSON file.');
-            }
-        };
-        reader.readAsText(file);
-    };
-
     const renderTensorFields = () => (
         <div className="bg-indigo-50 border-l-4 border-indigo-500 rounded-lg p-4 mb-6">
             <h3 className="text-lg font-semibold mb-4 text-indigo-700 flex items-center gap-2"><i className="fa-solid fa-sliders"></i>Tensor Settings</h3>
-            {/* Models and VAE */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                  <div>
                     <label className="block mb-2 font-medium text-gray-700">Model / Checkpoint</label>
@@ -186,7 +178,6 @@ const CollectionForm: React.FC<CollectionFormProps> = ({ onAddCollection, onClea
                     </select>
                 </div>
             </div>
-            {/* Sampler, Scheduler, CFG */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
                 <div>
                     <label className="block mb-2 font-medium text-gray-700">Sampler</label>
@@ -205,7 +196,6 @@ const CollectionForm: React.FC<CollectionFormProps> = ({ onAddCollection, onClea
                     <input type="number" value={cfg} onChange={e => setCfg(parseFloat(e.target.value))} min="0" max="20" step="0.1" className="block w-full p-3 border rounded-lg" />
                 </div>
             </div>
-             {/* Steps, Seed, Upscaler, Adetailer */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
                 <div>
                     <label className="block mb-2 font-medium text-gray-700">Steps</label>
@@ -226,7 +216,6 @@ const CollectionForm: React.FC<CollectionFormProps> = ({ onAddCollection, onClea
                     </div>
                 </div>
             </div>
-             {/* LoRA */}
             <div className="mb-6">
                 <label className="block mb-3 font-medium text-gray-700">LoRA (Max 6)</label>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
@@ -263,7 +252,6 @@ const CollectionForm: React.FC<CollectionFormProps> = ({ onAddCollection, onClea
                 <h2 className="text-xl font-bold flex items-center gap-2"><i className="fa-solid fa-plus-circle"></i>Add New Collection</h2>
             </div>
             <form onSubmit={handleSubmit} className="p-5">
-                {/* Image Upload */}
                 <div className="mb-6">
                     <label className="block mb-3 font-medium text-gray-700 text-lg"><i className="fa-solid fa-image mr-2"></i>Upload AI Image</label>
                     <div className="flex items-center justify-center w-full">
@@ -278,9 +266,18 @@ const CollectionForm: React.FC<CollectionFormProps> = ({ onAddCollection, onClea
                         </label>
                         <input id="imageInput" type="file" accept="image/*" className="hidden" ref={fileInputRef} onChange={handleImageChange} required />
                     </div>
+                    {imageFile && (
+                         <button 
+                            type="button" 
+                            onClick={handleAnalyzeClick} 
+                            disabled={isAnalyzing}
+                            className="mt-3 w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium flex items-center justify-center gap-2 disabled:bg-purple-400"
+                         >
+                            {isAnalyzing ? <><div className="spinner !w-5 !h-5 !border-white/50 !border-t-white"></div><span>Analyzing...</span></> : <><i className="fa-solid fa-wand-magic-sparkles"></i><span>Analyze with Gemini</span></>}
+                         </button>
+                    )}
                 </div>
 
-                 {/* Prompts */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                     <div>
                         <label htmlFor="prompt" className="block mb-2 font-medium text-gray-700"><i className="fa-solid fa-keyboard mr-2"></i>Prompt</label>
@@ -293,7 +290,6 @@ const CollectionForm: React.FC<CollectionFormProps> = ({ onAddCollection, onClea
                     </div>
                 </div>
 
-                {/* Platform Selection */}
                 <div className="mb-6">
                     <label className="block mb-3 font-medium text-gray-700 text-lg"><i className="fa-solid fa-cube mr-2"></i>Select Platform</label>
                     <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -301,53 +297,33 @@ const CollectionForm: React.FC<CollectionFormProps> = ({ onAddCollection, onClea
                             <div key={opt.id}>
                                 <input type="radio" name="platform" id={opt.id} value={opt.value} checked={platform === opt.value} onChange={handlePlatformChange} className="hidden peer" />
                                 <label htmlFor={opt.id} className={`flex flex-col items-center justify-center p-4 bg-white border-2 border-gray-300 rounded-xl cursor-pointer peer-checked:border-indigo-500 peer-checked:ring-2 peer-checked:ring-indigo-200 hover:bg-gray-50 transition-all duration-300`}>
-                                    <i className={`${opt.icon} text-3xl mb-3 ${opt.color}`}></i>
-                                    <span className="font-medium">{opt.label}</span>
+                                    <i className={`${opt.icon} ${opt.color} text-3xl mb-2`}></i>
+                                    <span className="font-semibold text-gray-700">{opt.label}</span>
                                 </label>
                             </div>
                         ))}
                     </div>
                 </div>
-                
+
                 {platform === Platform.Tensor ? renderTensorFields() : renderAltModelFields()}
 
-                {/* Metadata */}
-                <div className="mt-6">
-                    <h3 className="text-lg font-semibold mb-4 text-gray-800 flex items-center gap-2"><i className="fa-solid fa-tags text-indigo-500"></i>Metadata</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div>
-                            <label htmlFor="tags" className="block mb-2 font-medium text-gray-700">Tags</label>
-                            <input type="text" id="tags" value={tags} onChange={e => setTags(e.target.value)} className="block w-full p-3 border rounded-lg" placeholder="Comma separated (e.g., portrait, digital art)" />
-                        </div>
-                        <div>
-                            <label htmlFor="notes" className="block mb-2 font-medium text-gray-700">Notes</label>
-                            <textarea id="notes" value={notes} onChange={e => setNotes(e.target.value)} rows={3} className="block w-full p-3 border rounded-lg" placeholder="Additional notes about the prompt or image..."></textarea>
-                        </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    <div>
+                        <label htmlFor="tags" className="block mb-2 font-medium text-gray-700"><i className="fa-solid fa-tags mr-2"></i>Tags</label>
+                        <input id="tags" type="text" value={tags} onChange={e => setTags(e.target.value)} className="block w-full p-4 border rounded-xl focus:ring-2 focus:ring-indigo-300 focus:border-indigo-500" placeholder="e.g. fantasy, portrait, 4k" />
+                    </div>
+                     <div>
+                        <label htmlFor="notes" className="block mb-2 font-medium text-gray-700"><i className="fa-solid fa-sticky-note mr-2"></i>Notes</label>
+                        <textarea id="notes" value={notes} onChange={e => setNotes(e.target.value)} rows={1} className="block w-full p-4 border rounded-xl focus:ring-2 focus:ring-indigo-300 focus:border-indigo-500" placeholder="Any additional notes..."></textarea>
                     </div>
                 </div>
 
-                {/* Action Buttons */}
-                <div className="mt-8 flex flex-wrap gap-3">
-                    <button
-                        type="submit"
-                        disabled={isSubmitting || !isOnline}
-                        className="px-6 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 flex items-center gap-2 font-medium disabled:bg-indigo-400 disabled:cursor-not-allowed"
-                        title={!isOnline ? "Cannot save while offline" : "Save Collection"}
-                    >
-                        {isSubmitting ? <><div className="spinner !w-5 !h-5 !border-white/50 !border-t-white"></div><span>Saving...</span></> : <><i className="fa-solid fa-save"></i><span>Save Collection</span></>}
+                <div className="pt-6 border-t mt-4 flex flex-col sm:flex-row gap-3">
+                    <button type="submit" disabled={isSubmitting} className="flex-1 w-full px-6 py-3 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 disabled:bg-indigo-400 flex items-center justify-center gap-2">
+                         {isSubmitting ? <><div className="spinner !w-5 !h-5 !border-white/50 !border-t-white"></div><span>Saving...</span></> : <><i className="fa-solid fa-save"></i><span>Save Collection</span></>}
                     </button>
-                    <button type="button" onClick={handleExport} className="px-6 py-3 bg-green-600 text-white rounded-xl hover:bg-green-700 flex items-center gap-2 font-medium">
-                        <i className="fa-solid fa-file-export"></i>Export JSON
-                    </button>
-                    <button type="button" onClick={() => importInputRef.current?.click()} className="px-6 py-3 bg-yellow-500 text-white rounded-xl hover:bg-yellow-600 flex items-center gap-2 font-medium">
-                        <i className="fa-solid fa-file-import"></i>Import JSON
-                    </button>
-                    <input type="file" ref={importInputRef} onChange={handleImport} accept="application/json" className="hidden" />
-                    <button type="button" onClick={() => { resetForm(); showToast('Form has been reset.'); }} className="px-6 py-3 bg-gray-500 text-white rounded-xl hover:bg-gray-600 flex items-center gap-2 font-medium">
-                        <i className="fa-solid fa-undo"></i>Reset Form
-                    </button>
-                    <button type="button" onClick={onClearAll} disabled={!isOnline} className="px-6 py-3 bg-red-600 text-white rounded-xl hover:bg-red-700 flex items-center gap-2 font-medium disabled:bg-red-400 disabled:cursor-not-allowed">
-                        <i className="fa-solid fa-trash"></i>Clear All
+                    <button type="button" onClick={resetForm} className="w-full sm:w-auto px-6 py-3 bg-gray-500 text-white font-bold rounded-lg hover:bg-gray-600 flex items-center justify-center gap-2">
+                        <i className="fa-solid fa-arrows-rotate"></i><span>Reset Form</span>
                     </button>
                 </div>
             </form>

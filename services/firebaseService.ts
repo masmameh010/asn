@@ -1,3 +1,4 @@
+
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
 import { 
@@ -32,7 +33,6 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 
 // Initialize Firestore with modern offline persistence.
-// This replaces the deprecated enableIndexedDbPersistence() call.
 const db = initializeFirestore(app, {
   localCache: persistentLocalCache({ tabManager: persistentSingleTabManager({}) })
 });
@@ -48,7 +48,6 @@ export const signInWithGoogle = async (): Promise<User> => {
         return result.user;
     } catch (error) {
         console.error("Error during sign-in:", error);
-        // Re-throw the error so the UI layer can catch it and display a specific message.
         throw error;
     }
 };
@@ -87,6 +86,23 @@ export const addCollection = async (newCollection: Omit<Collection, 'id' | 'time
         timestamp: new Date()
     } as Collection;
 };
+
+export const batchAddCollections = async (userId: string, collectionsToAdd: Omit<Collection, 'id' | 'timestamp' | 'userId'>[]): Promise<void> => {
+    const batch = writeBatch(db);
+    
+    collectionsToAdd.forEach(item => {
+        const docRef = doc(collection(db, 'collections'));
+        const docData = {
+            ...item,
+            userId: userId,
+            timestamp: serverTimestamp()
+        };
+        batch.set(docRef, docData);
+    });
+
+    await batch.commit();
+};
+
 
 export const deleteCollection = async (id: string): Promise<void> => {
     const docRef = doc(db, 'collections', id);
