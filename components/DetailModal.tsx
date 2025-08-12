@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Collection } from '../types';
 
@@ -25,30 +24,56 @@ const DetailModal: React.FC<DetailModalProps> = ({ item, onClose, onDelete, show
     };
     
     const handleCopyImage = async () => {
-        if (!navigator.clipboard?.write || !window.ClipboardItem) {
+        if (!navigator.clipboard?.write) {
             showToast("Your browser does not support copying images.");
             return;
         }
         if (isCopying || isCopied) return;
-
+    
         setIsCopying(true);
         setIsCopied(false);
     
         try {
-            // Fetch the image and convert it to a blob
+            // Fetch the image data
             const response = await fetch(item.imageUrl);
             const blob = await response.blob();
+    
+            // Use a canvas to convert the image to PNG, which is widely supported
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const img = await createImageBitmap(blob);
             
-            // Create a ClipboardItem and write it to the clipboard
-            await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+            canvas.width = img.width;
+            canvas.height = img.height;
+            if(ctx) {
+                ctx.drawImage(img, 0, 0);
+            }
+    
+            // Await the promise from toBlob
+            const pngBlob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
             
+            if (!pngBlob) {
+                throw new Error("Canvas to Blob conversion failed.");
+            }
+    
+            // Create a ClipboardItem with the PNG blob and write it
+            await navigator.clipboard.write([
+                new ClipboardItem({
+                    'image/png': pngBlob
+                })
+            ]);
+    
             showToast("Image copied to clipboard!");
             setIsCopied(true);
-            setTimeout(() => setIsCopied(false), 2500); // Keep "Copied!" message for 2.5s
+            setTimeout(() => setIsCopied(false), 2500);
     
         } catch (error) {
             console.error('Failed to copy image:', error);
-            showToast("Failed to copy image. Check browser permissions or CORS policy.");
+            let message = "Failed to copy image. Check browser permissions or CORS policy.";
+            if (error instanceof Error && error.name === 'NotAllowedError') {
+                message = "Permission to write to clipboard was denied.";
+            }
+            showToast(message);
         } finally {
             setIsCopying(false);
         }
