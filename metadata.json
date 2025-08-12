@@ -1,0 +1,5 @@
+{
+  "name": "AI Image Collection Manager",
+  "description": "An application to store and manage your collection of AI-generated images along with their prompts and parameters. Images are stored on Cloudinary and data is saved to a Firestore Database.",
+  "requestFramePermissions": []
+}
